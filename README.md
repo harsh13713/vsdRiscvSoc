@@ -665,5 +665,364 @@ chmod +x build_link_test.sh
 ![Screenshot from 2025-06-08 19-09-12](https://github.com/user-attachments/assets/7497fca6-88ce-4e75-9376-3aa57d50c4f2)
 ![Screenshot from 2025-06-08 19-29-39](https://github.com/user-attachments/assets/d36d37c2-572b-43c2-b515-114ad6b32ab9)
 
+🧠 Flash Memory (0x00000000 - 0x0003FFFF)
+
+This section of memory is meant for storing the program's code permanently. It holds things like the instructions, constant values, and the entry point of the program (like _start). Flash memory is non-volatile, which means its contents stay even when the power is off. In my linker script, I’ve allocated 256KB for it. It's mostly read-only during execution.
+⚡ SRAM (0x10000000 - 0x1000FFFF)
+
+SRAM is where the program keeps temporary data while it's running. It stores global variables, the BSS segment (uninitialized data), and also supports the heap and stack. Unlike Flash, SRAM is volatile — meaning it loses everything when power is cut. It allows both reading and writing, and it's very fast. I’ve allocated 64KB for SRAM in the linker script.
+📌 Flash vs SRAM – Why They're at Different Addresses
+
+These memory regions are placed at different base addresses for several good reasons:
+
+    Architecture Design: Flash and SRAM often sit on separate memory buses, so their address ranges are distinct.
+
+    Performance: Flash is great for fetching instructions, while SRAM is better for handling data read/write operations quickly.
+
+    Power Saving: In low-power modes, Flash can be turned off while SRAM stays active to preserve temporary data.
+
+    Security: Flash is more secure since it can be made read-only during execution, while SRAM needs to be flexible for runtime changes.
+</details>
+
+<details>
+<summary><strong>💡 Task 12: LED Blink Using Memory-Mapped GPIO</strong></summary>
+
+### 🎯 Objective
+Create a bare-metal program that toggles an LED using memory-mapped I/O, controlled via GPIO register access. This exercise also uses a custom linker script and manual startup code (`_start`).
+
+---
+
+### 🗂️ Files Created
+
+| File              | Description                                 |
+|-------------------|---------------------------------------------|
+| `task12_led_blink.c` | Blinks LED using GPIO register toggling     |
+| `led_start.s`     | Assembly `_start` that sets up stack and calls `main` |
+| `led_blink.ld`    | Custom linker script for code/data placement |
+
+---
+
+### 🧠 Memory Mapping
+
+- `GPIO_BASE`: `0x10012000`
+- Output Register: `GPIO_BASE + 0x00`
+- Direction Register: `GPIO_BASE + 0x04`
+- Only GPIO pin 0 is used (toggled repeatedly)
+
+---
+
+### 🔧 Code Overview
+
+**task12_led_blink.c**
+```c
+#define GPIO_BASE 0x10012000
+#define GPIO_OUT  (*(volatile uint32_t *)(GPIO_BASE + 0x00))
+#define GPIO_DIR  (*(volatile uint32_t *)(GPIO_BASE + 0x04))
+
+void delay(volatile uint32_t count) {
+    while (count--) {
+        __asm__ volatile ("nop");
+    }
+}
+
+void main(void) {
+    GPIO_DIR |= (1 << 0);       // Set GPIO pin 0 as output
+    while (1) {
+        GPIO_OUT ^= (1 << 0);   // Toggle pin 0
+        delay(100000);
+    }
+}
+```
+led_start.s
+```asm
+.section .text.start
+.globl _start
+
+_start:
+    lui  sp, %hi(_stack_top)
+    addi sp, sp, %lo(_stack_top)
+    call main
+
+hang:
+    j hang
+```
+led_blink.ld
+```ld
+ENTRY(_start)
+
+MEMORY {
+    FLASH (rx)  : ORIGIN = 0x00000000, LENGTH = 256K
+    SRAM  (rwx) : ORIGIN = 0x10000000, LENGTH = 64K
+}
+
+SECTIONS {
+    .text : { *(.text.start) *(.text*) *(.rodata*) } > FLASH
+    .data : { _data_start = .; *(.data*) _data_end = .; } > SRAM
+    .bss  : { _bss_start = .; *(.bss*) _bss_end = .; } > SRAM
+    _stack_top = ORIGIN(SRAM) + LENGTH(SRAM);
+}
+```
+Compile the LED blink program
+```bash
+riscv32-unknown-elf-gcc -c led_start.s -o led_start.o
+riscv32-unknown-elf-gcc -c led_blink.c -o led_blink.o
+```
+Link with custom linker script
+```bash
+riscv32-unknown-elf-ld -T led_blink_link.ld led_start.o led_blink.o -o led_blink.elf
+```
+Complete build script
+```c
+#!/bin/bash
+echo "=== Task 12: LED Blink Implementation ==="
+
+Compile everything
+echo "1. Compiling LED blink program..."
+riscv32-unknown-elf-gcc -c led_start.s -o led_start.o
+riscv32-unknown-elf-gcc -c task12_led_blink.c -o task12_led_blink.o
+riscv32-unknown-elf-ld -T led_blink.ld led_start.o task12_led_blink.o -o task12_led_blink.elf
+
+echo "✓ Compilation successful!"
+
+Verify results
+echo -e "\n2. Verifying LED blink program:"
+file task12_led_blink.elf
+
+echo -e "\n3. Checking memory layout:"
+riscv32-unknown-elf-objdump -h task12_led_blink.elf | grep -E "(text|data)"
+
+echo -e "\n4. GPIO register usage in disassembly:"
+riscv32-unknown-elf-objdump -d task12_led_blink.elf | grep -A 5 -B 5 "0x10012000"
+
+echo -e "\n✓ LED blink program ready!"
+
+```
+```bash
+chmod +x build_led_blink.sh
+./build_led_blink.sh
+```
+![Screenshot from 2025-06-08 19-52-04](https://github.com/user-attachments/assets/43e09b54-cfe2-4128-b663-d0ea1d7155de)
+![Screenshot from 2025-06-08 19-54-31](https://github.com/user-attachments/assets/6cc618c4-f185-489e-99ca-546f6669a646)
+![Screenshot from 2025-06-08 19-58-45](https://github.com/user-attachments/assets/207fd60d-a734-46df-80b9-f8c9b6b13431)
+![Screenshot from 2025-06-08 20-05-53](https://github.com/user-attachments/assets/9526dfac-1c02-483e-aac7-6a902a9b2a5a)
+![Screenshot from 2025-06-08 20-06-18](https://github.com/user-attachments/assets/14b3fd29-de5b-4994-9bfa-b927ff462be6)
+
+LED Blink Algorithm:
+
+    Initialization: Set GPIO pin 0 as output using direction register
+    Main Loop: Infinite loop with LED toggle and delay
+    Toggle Operation: XOR output register bit 0 to alternate LED state
+    Timing Control: Delay function with configurable count for visible blinking
+
+</device>
+<details>
+<summary><strong>⏱️ Task 13: Machine Timer Interrupt Using RISC-V CSRs</strong></summary>
+
+📄 File Overview
+
+| File                 | Description                                     |
+|----------------------|-------------------------------------------------|
+| `timer_interrupt.c`  | Sets up timer and defines C interrupt handler   |
+| `start_inter.S`      | Assembly `_start` and trap redirection          |
+| `link.ld`            | Custom linker script for `.text`, `.data`, etc. |
+
+---
+timer_inter.c
+```c
+#include <stdint.h>
+
+#define CLINT_BASE      0x02000000
+#define MTIMECMP        (*(volatile uint64_t *)(CLINT_BASE + 0x4000))
+#define MTIME           (*(volatile uint64_t *)(CLINT_BASE + 0xBFF8))
+
+#define GPIO_BASE       0x10012000
+#define GPIO_OUT        (*(volatile uint32_t *)(GPIO_BASE + 0x00))
+#define GPIO_DIR        (*(volatile uint32_t *)(GPIO_BASE + 0x04))
+
+#define MIE_MTIE        (1 << 7)
+#define MSTATUS_MIE     (1 << 3)
+
+static inline void write_csr(const char *csr, uint32_t value) {
+    if (csr == "mstatus") {
+        __asm__ volatile("csrw mstatus, %0" :: "r"(value));
+    } else if (csr == "mie") {
+        __asm__ volatile("csrw mie, %0" :: "r"(value));
+    }
+}
+
+void timer_init() {
+    uint64_t now = MTIME;
+    MTIMECMP = now + 500000;  // Schedule next timer interrupt
+
+    write_csr("mie", MIE_MTIE);        // Enable machine timer interrupt
+    write_csr("mstatus", MSTATUS_MIE); // Global interrupt enable
+}
+
+// Interrupt handler attribute
+void __attribute__((interrupt)) machine_timer_handler(void) {
+    // Toggle GPIO pin 0
+    GPIO_OUT ^= (1 << 0);
+
+    // Schedule next interrupt
+    MTIMECMP = MTIME + 500000;
+}
+
+// Dummy main loop
+void main(void) {
+    GPIO_DIR |= (1 << 0); // Make GPIO pin 0 output
+    timer_init();
+
+    while (1) {
+        // Wait for timer interrupt
+    }
+}
+```
+start_inter.s
+```asm
+.section .text.start
+.global _start
+
+_start:
+    # Set up stack pointer
+    lui sp, %hi(_stack_top)
+    addi sp, sp, %lo(_stack_top)
+    
+    # Initialize trap vector
+    la t0, trap_handler
+    csrw mtvec, t0
+    
+    # Call main program
+    call main
+    
+    # Infinite loop (shouldn't reach here)
+1:  j 1b
+
+# Simple trap handler (if needed)
+trap_handler:
+    # Save context
+    addi sp, sp, -64
+    sw ra, 0(sp)
+    sw t0, 4(sp)
+    sw t1, 8(sp)
+    sw t2, 12(sp)
+    sw a0, 16(sp)
+    sw a1, 20(sp)
+    
+    # Call C interrupt handler
+    call machine_timer_handler
+    
+    # Restore context
+    lw ra, 0(sp)
+    lw t0, 4(sp)
+    lw t1, 8(sp)
+    lw t2, 12(sp)
+    lw a0, 16(sp)
+    lw a1, 20(sp)
+    addi sp, sp, 64
+    
+    # Return from interrupt
+    mret
+
+.size _start, . - _start
+.size trap_handler, . - trap_handler
+```
+link_inter.ld
+```ld
+/*
+ * Linker Script for Timer Interrupt - RV32IMC
+ * Places .text at 0x00000000 (Flash/ROM)
+ * Places .data at 0x10000000 (SRAM)
+ */
+
+ENTRY(_start)
+
+MEMORY
+{
+    FLASH (rx)  : ORIGIN = 0x00000000, LENGTH = 256K
+    SRAM  (rwx) : ORIGIN = 0x10000000, LENGTH = 64K
+}
+
+SECTIONS
+{
+    /* Text section in Flash at 0x00000000 */
+    .text 0x00000000 : {
+        *(.text.start)    /* Entry point first */
+        *(.text*)         /* All other text */
+        *(.rodata*)       /* Read-only data */
+    } > FLASH
+
+    /* Data section in SRAM at 0x10000000 */
+    .data 0x10000000 : {
+        _data_start = .;
+        *(.data*)         /* Initialized data */
+        _data_end = .;
+    } > SRAM
+
+    /* BSS section in SRAM */
+    .bss : {
+        _bss_start = .;
+        *(.bss*)          /* Uninitialized data */
+        _bss_end = .;
+    } > SRAM
+
+    /* Stack at end of SRAM */
+    _stack_top = ORIGIN(SRAM) + LENGTH(SRAM);
+}
+```
+Compile Timer Interrupt Program
+Compile the timer interrupt program with CSR support
+```bash
+riscv32-unknown-elf-gcc -march=rv32imac_zicsr -c start_inter.s -o start_inter.o
+riscv32-unknown-elf-gcc -march=rv32imac_zicsr -c timer_inter.c -o timer_inter.o
+riscv32-unknown-elf-ld -T link_inter.ld start_inter.o timer_inter.o -o timer_inter.elf
+```
+complete working build script
+build_timer_inter.sh
+```c
+
+#!/bin/bash
+echo "=== Task 13: Timer Interrupt Implementation ==="
+
+# Compile everything with zicsr extension
+echo "1. Compiling timer interrupt program..."
+riscv32-unknown-elf-gcc -march=rv32imac_zicsr -c start_inter.s -o start_inter.o
+riscv32-unknown-elf-gcc -march=rv32imac_zicsr -c timer_inter.c -o timer_inter.o
+riscv32-unknown-elf-ld -T link_inter.ld start_inter.o timer_inter.o -o timer_inter.elf
+
+echo "✓ Compilation successful!"
+
+# Verify results
+echo -e "\n2. Verifying timer interrupt program:"
+file timer_inter.elf
+
+echo -e "\n3. Checking interrupt-related symbols:"
+riscv32-unknown-elf-nm timer_inter.elf | grep -E "(interrupt|timer|handler)"
+
+echo -e "\n4. CSR operations in disassembly:"
+riscv32-unknown-elf-objdump -d timer_inter.elf | grep -A 3 -B 1 "csr"
+
+echo -e "\n✓ Timer interrupt program ready!"
+```
+```bash
+chmod +x build_timer_inter.sh
+./build_timer_inter.sh
+```
+![Screenshot from 2025-06-08 20-22-24](https://github.com/user-attachments/assets/c5004876-0146-45da-a2b6-0272d1e3d59a)
+![Screenshot from 2025-06-08 20-24-04](https://github.com/user-attachments/assets/e489ef7a-f322-427d-accf-84d5f57cc0db)
+![Screenshot from 2025-06-08 20-27-28](https://github.com/user-attachments/assets/793876b8-07bc-43e5-9e17-cd910c9920c7)
+![Screenshot from 2025-06-08 20-44-13](https://github.com/user-attachments/assets/87f4f47f-2f84-41a4-8fdf-a3ccad6a6bcb)
+![Screenshot from 2025-06-08 20-49-55](https://github.com/user-attachments/assets/ba0d6592-2151-4323-89b0-56d1addddba3)
+![Screenshot from 2025-06-08 20-50-27](https://github.com/user-attachments/assets/b52c921a-fdbe-4d12-9690-8a2e0aa5818b)
+![Screenshot from 2025-06-08 20-50-45](https://github.com/user-attachments/assets/7a1da1d4-55e5-4e37-9999-625494008a6b)
+
+</details>
+
+
+
+
+
+
+
+
 
 
