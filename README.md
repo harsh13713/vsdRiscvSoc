@@ -1222,8 +1222,192 @@ chmod +x build_atomic.sh
 ![Screenshot from 2025-06-08 22-06-47](https://github.com/user-attachments/assets/a59fe712-ed44-4520-9921-8e717cb55568)
 ![Screenshot from 2025-06-08 22-18-34](https://github.com/user-attachments/assets/144835b0-1f08-41b6-888a-6a99dbbae31d)
 
+<details>
+<summary><strong>🔒 Task 15: Mutex Using Spinlock with LR/SC</strong></summary>
 
+### 🎯 Objective
 
+Demonstrate how to implement a **mutex (mutual exclusion)** in bare-metal RISC-V using a **software spinlock** based on **load-reserved / store-conditional (`lr.w` / `sc.w`)** instructions.
+
+The goal is to protect a shared counter from concurrent access by two simulated "threads".
+
+---
+
+### 🧠 Core Concepts
+
+| Component    | Purpose                                             |
+|--------------|-----------------------------------------------------|
+| `lr.w`       | Load-reserved word — marks address for atomic use  |
+| `sc.w`       | Store-conditional — only stores if reservation is valid |
+| `sw zero`    | Releases the lock (writes 0 to lock variable)      |
+| Spinlock     | Loops until lock is acquired (no preemption)       |
+
+---
+
+### 📁 Files Used
+
+| File                        | Description                                  |
+|-----------------------------|----------------------------------------------|
+| `task15_complete_mutex.c`   | C code simulating two threads using mutex    |
+| `start.s`                   | Assembly `_start` to call `main`             |
+| `mutex.ld`                  | Custom linker script                         |
+
+---
+
+full_mutex.c
+```c
+#include <stdint.h>
+
+/* =======================================
+   Shared Resources
+   ======================================= */
+volatile int mutex_lock = 0;
+volatile int shared_counter = 0;
+volatile int thread1_count = 0;
+volatile int thread2_count = 0;
+
+/* =======================================
+   Spinlock Acquire using LR/SC
+   ======================================= */
+void lock_acquire(volatile int *lock) {
+    int temp;
+
+    __asm__ volatile (
+        "1:\n"
+        "   lr.w    %0, (%1)\n"      // Load-reserved
+        "   bnez    %0, 1b\n"        // Retry if already locked
+        "   li      %0, 1\n"         // Prepare value to store
+        "   sc.w    %0, %0, (%1)\n"  // Attempt store-conditional
+        "   bnez    %0, 1b\n"        // Retry if SC failed
+        : "=&r"(temp)
+        : "r"(lock)
+        : "memory"
+    );
+}
+
+/* =======================================
+   Spinlock Release
+   ======================================= */
+void lock_release(volatile int *lock) {
+    __asm__ volatile (
+        "sw zero, 0(%0)\n"   // Store 0 to release lock
+        :
+        : "r"(lock)
+        : "memory"
+    );
+}
+
+/* =======================================
+   Critical Section (Mutex Protected)
+   ======================================= */
+void safe_increment(int thread_id, int iterations) {
+    for (int i = 0; i < iterations; i++) {
+        lock_acquire(&mutex_lock);
+
+        // Begin critical section
+        shared_counter++;
+        if (thread_id == 1)
+            thread1_count++;
+        else
+            thread2_count++;
+        // End critical section
+
+        lock_release(&mutex_lock);
+    }
+}
+
+/* =======================================
+   Pseudo Threads
+   ======================================= */
+void thread1(void) {
+    safe_increment(1, 50000);
+}
+
+void thread2(void) {
+    safe_increment(2, 50000);
+}
+
+/* =======================================
+   Fake Delay to Simulate Overlap
+   ======================================= */
+void delay(volatile int count) {
+    while (count--) {
+        __asm__ volatile ("nop");
+    }
+}
+
+/* =======================================
+   Main Function
+   ======================================= */
+int main() {
+    // Reset all shared variables
+    mutex_lock = 0;
+    shared_counter = 0;
+    thread1_count = 0;
+    thread2_count = 0;
+
+    // Simulated concurrent thread execution
+    thread1();
+    delay(1000);
+    thread2();
+
+    return 0;
+}
+```
+
+mutex.ld
+```ld
+/* Linker script for Task 15: Mutex Demo */
+
+ENTRY(_start)
+
+MEMORY {
+    FLASH (rx)  : ORIGIN = 0x00000000, LENGTH = 256K
+    SRAM  (rwx) : ORIGIN = 0x10000000, LENGTH = 64K
+}
+
+SECTIONS {
+    .text : {
+        *(.text.start)     /* Entry point */
+        *(.text*)          /* Application code */
+        *(.rodata*)        /* Read-only constants */
+    } > FLASH
+
+    .data : {
+        _data_start = .;
+        *(.data*)
+        _data_end = .;
+    } > SRAM
+
+    .bss : {
+        _bss_start = .;
+        *(.bss*)
+        _bss_end = .;
+    } > SRAM
+
+    _stack_top = ORIGIN(SRAM) + LENGTH(SRAM);
+}
+```
+Compile the complete single file version
+```bash
+riscv32-unknown-elf-gcc -march=rv32imac -c full_mutex.c -o full_mutex.o
+riscv32-unknown-elf-ld -T mutex.ld start.o full_mutex.o -o full_mutex.elf
+```
+Verify programs compile successfully
+```bash
+file full_mutex.elf
+```
+Check LR/SC instructions are generated
+```bash
+cho -e "\n=== LR/SC Instructions Found ==="
+riscv32-unknown-elf-gcc -march=rv32imac -S full_mutex.c
+grep -E "(lr\.w|sc\.w)" full_mutex.s
+```
+![Screenshot from 2025-06-08 22-49-23](https://github.com/user-attachments/assets/09db2c05-8cb8-4380-bfb3-54715583e418)
+![Screenshot from 2025-06-08 22-54-11](https://github.com/user-attachments/assets/88959362-b244-475e-8b33-743b3346c498)
+![Screenshot from 2025-06-08 22-57-09](https://github.com/user-attachments/assets/04a124c6-59ba-420a-9afe-e6686c0d7012)
+
+</details>
 
 
 
