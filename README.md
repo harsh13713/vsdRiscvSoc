@@ -814,7 +814,7 @@ LED Blink Algorithm:
     Toggle Operation: XOR output register bit 0 to alternate LED state
     Timing Control: Delay function with configurable count for visible blinking
 
-</device>
+</details>
 <details>
 <summary><strong>⏱️ Task 13: Machine Timer Interrupt Using RISC-V CSRs</strong></summary>
 
