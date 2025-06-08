@@ -141,25 +141,41 @@ Calling convention:
 <details>
 <summary><strong>🐞 Task 6: GDB Debugging</strong></summary>
 
+### 🔧 Tool Versions
+
+```bash
+which riscv32-unknown-elf-gdb
+```
+```bash
+riscv32-unknown-elf-gdb --version
+```
+```bash
+file hello.elf
+```
+```bash
+riscv32-unknown-elf-objdump -h hello.elf
+riscv32-unknown-elf-readelf -l hello.elf
+```
+GDB Session
 ```bash
 riscv32-unknown-elf-gdb hello.elf
-```
-Inside GDB:
-```bash
-(gdb) target sim
-(gdb) break main
-(gdb) run
-(gdb) info registers
-(gdb) disassemble
-```
-Actions:
+Disassemble main:
 
-    Set a breakpoint at main
-    Run the program
-    View register values
-    Step through the program
+(gdb) disassemble main
+(gdb) info symbol 0x10170
+(gdb) x/10i 0x10162
+(gdb) info symbol 0x100e2
+(gdb) x/5i 0x100e2
+(gdb) x/s 0x1245c
+(gdb) x/1xw 0x10162
+(gdb) x/1xw 0x10170
+```
+![Screenshot from 2025-06-08 15-19-40](https://github.com/user-attachments/assets/a8001d5a-3536-4066-aaed-815fd8d1b3f2)
+![Screenshot from 2025-06-08 15-20-00](https://github.com/user-attachments/assets/8fcaa112-6916-4348-aa72-acf03afab777)
+![Screenshot from 2025-06-08 15-20-15](https://github.com/user-attachments/assets/f61432c2-c178-422c-bf4c-0704142cbdbd)
+![Screenshot from 2025-06-08 15-20-25](https://github.com/user-attachments/assets/35e78012-889b-47db-b65f-337eacc87050)
 
-</details>
+
 <details>
 <summary><strong>🖥️ Task 7: Emulator Run using QEMU</strong></summary>
 
@@ -267,6 +283,110 @@ Comparison:
 
 **C Code with Inline Assembly:**
 ```c
+#define UART0 0x10000000
+#define uart_tx (*((volatile char *)UART0))
+
+#include <stdint.h>
+
+void uart_putchar(char c) {
+    uart_tx = c;
+}
+
+void uart_puts(const char *s) {
+    while (*s) {
+        uart_putchar(*s++);
+    }
+}
+
+void uart_putnum(uint32_t num) {
+    char buf[10];
+    int i = 0;
+    if (num == 0) {
+        uart_putchar('0');
+        return;
+    }
+    while (num > 0 && i < 10) {
+        buf[i++] = '0' + (num % 10);
+        num /= 10;
+    }
+    while (i--) {
+        uart_putchar(buf[i]);
+    }
+}
+
+static inline uint32_t add_inline(uint32_t a, uint32_t b) {
+    uint32_t result;
+    asm volatile ("add %0, %1, %2" : "=r"(result) : "r"(a), "r"(b));
+    return result;
+}
+
+static inline uint32_t demo_volatile(uint32_t input) {
+    uint32_t output;
+    asm volatile ("slli %0, %1, 1" : "=r"(output) : "r"(input));
+    return output;
+}
+
+void _start() {
+    uart_puts("=== Inline Assembly: No CSRs ===\n");
+
+    uart_puts("15 + 25 = ");
+    uart_putnum(add_inline(15, 25));
+    uart_putchar('\n');
+
+    uart_puts("5 << 1 = ");
+    uart_putnum(demo_volatile(5));
+    uart_putchar('\n');
+
+    while (1) {}
+}
+```
+Compile
+```bash
+riscv32-unknown-elf-gcc -nostdlib -march=rv32imc -mabi=ilp32 -Wl,-e,_start -o inline_assembly_nocsr.elf inline_assembly.c
+```
+Generate assembly file
+```bash
+riscv32-unknown-elf-gcc -S inline_assembly.c
+```
+View inline assembly in generated code
+```bash
+echo "=== Generated Assembly with Inline Code ==="
+grep -A 5 -B 5 -E "(add|slli|mv)" inline_assembly.s
+```
+Complete verification
+```bash
+echo "=== Task 9: Inline Assembly Implementation ==="
+
+echo -e "\n1. Source code created:"
+ls -la inline_assembly.c
+
+echo -e "\n2. Compilation:"
+riscv32-unknown-elf-gcc -nostdlib -nostartfiles -nodefaultlibs -march=rv32imc -mabi=ilp32 -Wl,-e,_start -o inline_assembly.elf inline_assembly.c \                     
+  && echo "✓ Compiled!" \
+  || echo "❌ Compilation failed"
+                                   
+echo -e "\n3. Assembly generation:"                                                                                  
+riscv32-unknown-elf-gcc -S inline_assembly.c && echo "✓ Assembly generated!" || echo "❌ Failed to generate assembly"
+                                                       
+echo -e "\n4. Inline assembly found in generated code:"
+grep -A 2 -B 2 -E "add|slli|mv" inline_assembly.s | head -10
+```
+```bash
+file inline_assembly.elf
+```
+![Screenshot from 2025-06-08 16-00-23](https://github.com/user-attachments/assets/3d1daa73-35f1-42e8-85d9-f74e0a180e67)
+![Screenshot from 2025-06-08 16-09-57](https://github.com/user-attachments/assets/d3d1efbf-4fae-485b-882c-ad4cb85bedd9)
+![Screenshot from 2025-06-08 16-10-46](https://github.com/user-attachments/assets/8d2511fe-5463-4760-bc93-4907733ed0f1)
+![Screenshot from 2025-06-08 16-11-21](https://github.com/user-attachments/assets/9f916e31-c8e5-4925-baed-6aa4a9fa9890)
+![Screenshot from 2025-06-08 16-11-55](https://github.com/user-attachments/assets/a1d2fed2-cf79-4068-8d84-1f2607719581)
+![Screenshot from 2025-06-08 16-12-01](https://github.com/user-attachments/assets/f5a352d3-0bc8-4b9e-8d16-c13cf8ba1995)
+![Screenshot from 2025-06-08 16-12-08](https://github.com/user-attachments/assets/ff463b13-cf4e-4df3-a179-a9a7559b812a)
+![Screenshot from 2025-06-08 16-12-36](https://github.com/user-attachments/assets/7e1a70ed-944a-4744-b57b-1f054dc672d2)
+![Screenshot from 2025-06-08 16-12-41](https://github.com/user-attachments/assets/175bfd72-1739-465f-aa85-7721bc0e8562)
+
+
+
+
 
 
 
