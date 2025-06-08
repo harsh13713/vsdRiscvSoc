@@ -1221,7 +1221,7 @@ chmod +x build_atomic.sh
 ![Screenshot from 2025-06-08 21-36-41](https://github.com/user-attachments/assets/31ce243d-e92d-45aa-a211-c7d4b7673b21)
 ![Screenshot from 2025-06-08 22-06-47](https://github.com/user-attachments/assets/a59fe712-ed44-4520-9921-8e717cb55568)
 ![Screenshot from 2025-06-08 22-18-34](https://github.com/user-attachments/assets/144835b0-1f08-41b6-888a-6a99dbbae31d)
-
+</details>
 <details>
 <summary><strong>🔒 Task 15: Mutex Using Spinlock with LR/SC</strong></summary>
 
@@ -1411,5 +1411,71 @@ grep -E "(lr\.w|sc\.w)" full_mutex.s
 
 
 
+<details>
+<summary><strong>🖨️ Task 16: Retarget printf() to UART without OS</strong></summary>
 
+### 🎯 Objective
 
+Implement a working `printf()` in a **bare-metal RISC-V** environment by:
+- Overriding the `_write()` syscall from Newlib
+- Redirecting its output to a **memory-mapped UART**
+- Running without any operating system
+
+---
+
+### 📂 Files Overview
+
+| File         | Description                                   |
+|--------------|-----------------------------------------------|
+| `no_os.c`    | C source file with custom `_write()` and `main()` |
+| `start.s`    | Startup assembly to initialize stack and call `main()` |
+| `linker.ld`  | Linker script to define memory layout and entry point |
+| `build_no_os.sh` | Script to compile and verify the full ELF |
+
+---
+
+### 🔧 Core Features
+
+- ✅ Uses `UART0_BASE` at `0x10000000` (QEMU `virt` default)
+- ✅ Retargets Newlib’s `printf()` through `_write()` syscall
+- ✅ Sends characters byte-by-byte using `uart_putchar()`
+- ✅ Includes stubbed syscalls to prevent linker errors
+
+---
+
+### 📄 Code Highlights
+
+```c
+#define UART0_BASE 0x10000000
+#define UART0_TX (*(volatile uint8_t *)UART0_BASE)
+
+void uart_putchar(char c) {
+    UART0_TX = c;
+}
+
+ssize_t _write(int fd, const void *buf, size_t count) {
+    const char *str = (const char *)buf;
+    for (size_t i = 0; i < count; i++) {
+        uart_putchar(str[i]);
+    }
+    return count;
+}
+int main() {
+    printf("Hello, UART!\n");
+    printf("Decimal: %d, Hex: 0x%x\n", 123, 123);
+    return 0;
+}
+```
+Compilation Command (from script)
+```bash
+riscv32-unknown-elf-gcc -march=rv32imac -mabi=ilp32 \
+  -nostartfiles -T linker.ld -o no_os.elf \
+  start.s no_os.c -lc -lgcc
+```
+
+ Run in QEMU (virt machine)
+```bash
+qemu-system-riscv32 -nographic -machine virt \
+  -bios fw_jump.bin -kernel no_os.elf
+```
+</details>
