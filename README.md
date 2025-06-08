@@ -1016,8 +1016,211 @@ chmod +x build_timer_inter.sh
 ![Screenshot from 2025-06-08 20-50-45](https://github.com/user-attachments/assets/7a1da1d4-55e5-4e37-9999-625494008a6b)
 
 </details>
+<details>
+<summary><strong>🔁 Task 14: Circular Queue - With & Without Atomic Operations</strong></summary>
 
+### 🎯 Objective
 
+Implement and compare two circular queue designs:
+1. ✅ With atomic operations (`__atomic_exchange_n`)
+2. ❌ Without atomic operations (single-core safe only)
+
+---
+
+### 📂 Files
+
+| File                        | Description                                  |
+|-----------------------------|----------------------------------------------|
+| `task14_queue_atomic.c`     | Thread-safe queue using spinlocks            |
+| `task14_queue_non_atomic.c` | Basic queue for single-core use              |
+| `start.s`                   | Minimal startup assembly                     |
+| `linker.ld`                 | Bare-metal linker script                     |
+
+---
+
+atomic_queue.c
+```c
+#include <stdint.h>
+#include <stdbool.h>
+
+#define QUEUE_SIZE 8
+
+volatile uint32_t queue[QUEUE_SIZE];
+volatile uint32_t head = 0;
+volatile uint32_t tail = 0;
+volatile uint32_t lock = 0;
+
+static inline void lock_acquire(volatile uint32_t *lock) {
+    while (__atomic_exchange_n(lock, 1, __ATOMIC_ACQUIRE) != 0) {}
+}
+static inline void lock_release(volatile uint32_t *lock) {
+    __atomic_store_n(lock, 0, __ATOMIC_RELEASE);
+}
+
+bool enqueue(uint32_t value) {
+    lock_acquire(&lock);
+    uint32_t next_tail = (tail + 1) % QUEUE_SIZE;
+    if (next_tail == head) {
+        lock_release(&lock);
+        return false;
+    }
+    queue[tail] = value;
+    tail = next_tail;
+    lock_release(&lock);
+    return true;
+}
+
+bool dequeue(uint32_t *value) {
+    lock_acquire(&lock);
+    if (head == tail) {
+        lock_release(&lock);
+        return false;
+    }
+    *value = queue[head];
+    head = (head + 1) % QUEUE_SIZE;
+    lock_release(&lock);
+    return true;
+}
+
+void test_queue(void) {
+    uint32_t val;
+    enqueue(10); enqueue(20); enqueue(30);
+    dequeue(&val); dequeue(&val);
+    enqueue(40); enqueue(50);
+    while (dequeue(&val)) { (void)val; }
+}
+
+void main(void) {
+    test_queue();
+    while (1);
+}
+```
+
+no_atomic_queue.c
+```c
+#include <stdint.h>
+#include <stdbool.h>
+
+#define QUEUE_SIZE 8
+
+volatile uint32_t queue[QUEUE_SIZE];
+volatile uint32_t head = 0;
+volatile uint32_t tail = 0;
+
+bool enqueue(uint32_t value) {
+    uint32_t next_tail = (tail + 1) % QUEUE_SIZE;
+    if (next_tail == head) return false;
+    queue[tail] = value;
+    tail = next_tail;
+    return true;
+}
+
+bool dequeue(uint32_t *value) {
+    if (head == tail) return false;
+    *value = queue[head];
+    head = (head + 1) % QUEUE_SIZE;
+    return true;
+}
+
+void test_queue(void) {
+    uint32_t val;
+    enqueue(10); enqueue(20); enqueue(30);
+    dequeue(&val); dequeue(&val);
+    enqueue(40); enqueue(50);
+    while (dequeue(&val)) { (void)val; }
+}
+
+void main(void) {
+    test_queue();
+    while (1);
+}
+```
+atomic_start.s
+
+```asm
+.section .text.start
+.globl _start
+
+_start:
+    lui sp, %hi(_stack_top)
+    addi sp, sp, %lo(_stack_top)
+    call main
+
+hang:
+    j hang
+.size _start, . - _start
+```
+atomic_link.ld
+```ld
+ENTRY(_start)
+
+MEMORY {
+    FLASH (rx)  : ORIGIN = 0x00000000, LENGTH = 256K
+    SRAM  (rwx) : ORIGIN = 0x10000000, LENGTH = 64K
+}
+
+SECTIONS {
+    .text : { *(.text.start) *(.text*) *(.rodata*) } > FLASH
+    .data : { _data_start = .; *(.data*) _data_end = .; } > SRAM
+    .bss  : { _bss_start = .; *(.bss*) _bss_end = .; } > SRAM
+    _stack_top = ORIGIN(SRAM) + LENGTH(SRAM);
+}
+```
+Compile the atomic operations program with RV32IMAC
+```bash
+riscv32-unknown-elf-gcc -march=rv32imac -c atomic_start.s -o atomic_start.o
+riscv32-unknown-elf-gcc -march=rv32imac -c atomic_queue.c -o atomic_queue.o
+```
+Link with custom linker script
+```bash
+riscv32-unknown-elf-ld -T atomic_link.ld atomic_start.o atomic_queue.o -o atomic_queue.elf
+```
+Also compile non-atomic version for comparison
+```bash
+riscv32-unknown-elf-gcc -march=rv32imc -c no_atomic_queue.c -o no_atomic_queue.o
+riscv32-unknown-elf-ld -T atomic_link.ld atomic_start.o no_atomic_queue.o -o no_atomic_queue.elf
+```
+
+Complete working build script
+```c
+
+#!/bin/bash
+echo "=== Task 14: Atomic Extension Demonstration ==="
+
+# Compile with RV32IMAC (includes atomic extension)
+echo "1. Compiling with atomic extension (RV32IMAC)..."
+riscv32-unknown-elf-gcc -march=rv32imac -c atomic_start.s -o atomic_start.o
+riscv32-unknown-elf-gcc -march=rv32imac -c atomic_queue.c -o atomic_queue.o
+riscv32-unknown-elf-ld -T atomic.ld atomic_start.o atomic_queue.o -o atomic_queue.elf
+
+echo "2. Compiling without atomic extension (RV32IMC)..."
+riscv32-unknown-elf-gcc -march=rv32imc -c no_atomic_queue.c -o no_atomic_queue.o
+riscv32-unknown-elf-ld -T atomic_link.ld atomic_start.o no_atomic_queue.o -o no_atomic_queue.elf
+
+echo "✓ Compilation successful!"
+
+# Verify results
+echo -e "\n3. Verifying atomic operations program:"
+file atomic_queue.elf
+
+echo -e "\n4. Checking for atomic instructions:"
+riscv32-unknown-elf-gcc -march=rv32imac -S atomic_queue.c
+grep -E "(lr\.w|sc\.w|amoadd|amoswap|amoand|amoor)" atomic_queue.s
+
+echo -e "\n5. Disassembly showing atomic instructions:"
+riscv32-unknown-elf-objdump -d atomic_queue.elf | grep -A 2 -B 2 "lr\.w\|sc\.w\|amo"
+
+echo -e "\n✓ Atomic extension demonstration ready!"
+```
+```bash
+chmod +x build_atomic.sh
+./build_atomic.sh
+```
+![Screenshot from 2025-06-08 21-28-41](https://github.com/user-attachments/assets/69a79eb1-3481-4a5f-950a-e7041e39e31b)
+![Screenshot from 2025-06-08 21-35-40](https://github.com/user-attachments/assets/4729744d-233c-46c5-99de-4203642d50b2)
+![Screenshot from 2025-06-08 21-36-41](https://github.com/user-attachments/assets/31ce243d-e92d-45aa-a211-c7d4b7673b21)
+![Screenshot from 2025-06-08 22-06-47](https://github.com/user-attachments/assets/a59fe712-ed44-4520-9921-8e717cb55568)
+![Screenshot from 2025-06-08 22-18-34](https://github.com/user-attachments/assets/144835b0-1f08-41b6-888a-6a99dbbae31d)
 
 
 
