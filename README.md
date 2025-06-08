@@ -175,7 +175,7 @@ Disassemble main:
 ![Screenshot from 2025-06-08 15-20-15](https://github.com/user-attachments/assets/f61432c2-c178-422c-bf4c-0704142cbdbd)
 ![Screenshot from 2025-06-08 15-20-25](https://github.com/user-attachments/assets/35e78012-889b-47db-b65f-337eacc87050)
 
-
+</details>
 <details>
 <summary><strong>🖥️ Task 7: Emulator Run using QEMU</strong></summary>
 
@@ -260,6 +260,7 @@ riscv32-unknown-elf-gcc -T linker.ld -nostartfiles -o hello.elf hello.c
 ```
 ![uart hello riscv](https://github.com/user-attachments/assets/91c298b5-c193-46dd-b9d2-d4fb8adfe84e)
 </details>
+
 <details>
 <summary><strong>🚀 Task 8: GCC Optimization (-O0 vs -O2)</strong></summary>
 
@@ -278,6 +279,7 @@ Comparison:
     -O2 (optimized): inlines functions, removes dead code, reuses registers efficiently.
 
   </details>
+  
   <details>
 <summary><strong>⚙️ Task 9: Inline Assembly – Reading Cycle Counter</strong></summary>
 
@@ -384,9 +386,166 @@ file inline_assembly.elf
 ![Screenshot from 2025-06-08 16-12-36](https://github.com/user-attachments/assets/7e1a70ed-944a-4744-b57b-1f054dc672d2)
 ![Screenshot from 2025-06-08 16-12-41](https://github.com/user-attachments/assets/175bfd72-1739-465f-aa85-7721bc0e8562)
 
+</details>
+<details>
+<summary><strong>🔌 Task 10: Memory-Mapped I/O using Volatile vs Non-Volatile</strong></summary>
 
+### 🧪 Objective:
+Demonstrate the importance of using `volatile` for memory-mapped I/O in RISC-V bare-metal programming by comparing two versions:
+- ✅ `gpio_vol.c` – with `volatile`
+- ❌ `gpio_novol.c` – without `volatile`
 
+---
 
+### 🧠 What is `volatile`?
+
+- Tells the compiler **not to optimize** memory accesses.
+- Required for memory-mapped I/O since values can change outside the program's control (via hardware).
+- Prevents removal or reordering of `*gpio = ...` operations.
+
+---
+
+**gpio_vol.c**
+```c
+#include <stdint.h>
+
+#define UART0 0x10000000
+#define GPIO_ADDR 0x10012000
+
+#define uart_tx (*((volatile char *)UART0))
+#define gpio_reg (*((volatile uint32_t *)GPIO_ADDR))
+
+// Send a character to UART
+void uart_putchar(char c) {
+    uart_tx = c;
+}
+
+// Send a string to UART
+void uart_puts(const char *s) {
+    while (*s) {
+        uart_putchar(*s++);
+    }
+}
+
+// Convert number to decimal and print to UART
+void uart_putnum(uint32_t num) {
+    char buf[10];
+    int i = 0;
+    if (num == 0) {
+        uart_putchar('0');
+        return;
+    }
+    while (num > 0) {
+        buf[i++] = '0' + (num % 10);
+        num /= 10;
+    }
+    while (i--) {
+        uart_putchar(buf[i]);
+    }
+}
+
+// Perform GPIO operations
+void gpio_task10_demo() {
+    uart_puts("=== Task 10: GPIO Demo ===\n");
+
+    // Write 0x1 to GPIO (set pin high)
+    gpio_reg = 0x1;
+    uart_puts("GPIO written: 0x1\n");
+
+    // Read back and toggle
+    uint32_t current = gpio_reg;
+    gpio_reg = ~current;
+    uart_puts("GPIO toggled.\n");
+
+    // Set bit 0
+    gpio_reg |= (1 << 0);
+    uart_puts("Bit 0 set.\n");
+
+    // Clear bit 1
+    gpio_reg &= ~(1 << 1);
+    uart_puts("Bit 1 cleared.\n");
+}
+
+// Entry point (no main)
+void _start() {
+    gpio_task10_demo();
+
+    while (1) {
+        // Infinite loop (bare-metal style)
+    }
+}
+```
+gpio_novol.c
+```c
+#include <stdint.h>
+
+#define UART0 0x10000000
+#define GPIO_ADDR 0x10012000
+
+#define uart_tx (*((volatile char *)UART0))
+#define gpio_ptr ((uint32_t *)GPIO_ADDR)  // ❌ Not volatile on purpose
+
+void uart_putchar(char c) {
+    uart_tx = c;
+}
+
+void uart_puts(const char *s) {
+    while (*s) {
+        uart_putchar(*s++);
+    }
+}
+
+// This function omits `volatile`, so the compiler may optimize away writes
+void toggle_gpio_no_volatile(void) {
+    uart_puts("Writing to GPIO without volatile...\n");
+
+    *gpio_ptr = 0x1;  // Set high
+    *gpio_ptr = 0x0;  // Set low
+    *gpio_ptr = 0x1;  // Set high again — may be optimized away
+
+    uart_puts("Done writing GPIO without volatile.\n");
+}
+
+// Bare-metal entry point
+void _start() {
+    toggle_gpio_no_volatile();
+
+    while (1) {}
+}
+```
+Compilation
+```bash
+riscv32-unknown-elf-gcc -nostdlib -nostartfiles -nodefaultlibs \
+  -march=rv32imc -mabi=ilp32 -Wl,-e,_start -o gpio_vol.elf gpio_vol.c
+
+riscv32-unknown-elf-gcc -nostdlib -nostartfiles -nodefaultlibs \
+  -march=rv32imc -mabi=ilp32 -Wl,-e,_start -o gpio_novol.elf gpio_novol.c
+```
+Assembly Analysis (Optimized with -O2)
+```bash
+riscv32-unknown-elf-gcc -S -O2 gpio_vol.c -o gpio_vol.s
+riscv32-unknown-elf-gcc -S -O2 gpio_novol.c -o gpio_novol.s
+```
+With volatile (gpio_vol.s) – memory operations preserved:
+```bash
+105:	sw	a3,0(a4)
+115:	lw	a4,0(a3)
+119:	sw	a4,0(a3)
+128:	lw	a4,0(a3)
+132:	sw	a4,0(a3)
+```
+Without volatile (gpio_novol.s) – some writes optimized away:
+```bash
+54:	sw	a3,0(a4)         # Only one memory write remains
+70:	sw	ra,12(sp)        # Function prologue, not GPIO
+```
+✅ Memory instructions (sw, lw) are optimized out in the non-volatile version.
+![Screenshot from 2025-06-08 16-48-56](https://github.com/user-attachments/assets/aac5ef57-5313-4b2e-a7f3-f31b7a022b00)
+![Screenshot from 2025-06-08 16-51-16](https://github.com/user-attachments/assets/02e88936-6568-4228-94fc-0efe39fe71da)
+![Screenshot from 2025-06-08 17-18-39](https://github.com/user-attachments/assets/f6e5724d-53b8-47bc-854f-0213c02928a9)
+![Screenshot from 2025-06-08 17-18-51](https://github.com/user-attachments/assets/c7c89e4c-68e0-4c6f-98d0-9fac8ddeef75)
+
+</details>
 
 
 
