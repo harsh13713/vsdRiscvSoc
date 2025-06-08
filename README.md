@@ -547,7 +547,123 @@ Without volatile (gpio_novol.s) – some writes optimized away:
 
 </details>
 
+<details>
+<summary><strong>📦 Task 11: Custom Linker Script and Bare-Metal Setup</strong></summary>
 
+### 🔧 Objective:
+Create and test a custom linker script for a bare-metal RISC-V RV32IMC program. Ensure correct placement of `.text`, `.data`, and `.bss` sections in memory.
+
+---
+
+### 🗂️ Files Used:
+
+| File           | Purpose                                   |
+|----------------|-------------------------------------------|
+| `minimal.ld`   | Custom linker script                      |
+| `test_linker.c`| C file with variables in `.data` and `.bss` |
+| `start.S`      | Minimal `_start` assembly to call `main()`|
+
+---
+
+`min_link.ld` Highlights:
+
+- Places `.text` at **0x00000000** (Flash/ROM)
+- Places `.data` and `.bss` at **0x10000000** (SRAM)
+- Defines `_stack_top` at top of SRAM
+
+```ld
+MEMORY {
+    FLASH (rx)  : ORIGIN = 0x00000000, LENGTH = 256K
+    SRAM  (rwx) : ORIGIN = 0x10000000, LENGTH = 64K
+}
+
+SECTIONS {
+    .text : { *(.text.start) *(.text*) *(.rodata*) } > FLASH
+    .data : { _data_start = .; *(.data*) _data_end = .; } > SRAM
+    .bss  : { _bss_start = .; *(.bss*) _bss_end = .; } > SRAM
+    _stack_top = ORIGIN(SRAM) + LENGTH(SRAM);
+}
+```
+test_link.c 
+```c
+uint32_t counter = 0x12345678; // Goes to .data
+uint32_t status_flag;          // Goes to .bss
+
+void write_pattern(void) {
+    counter = 0xCAFEBABE;
+    status_flag = 0x0000DEAD;
+}
+
+void main(void) {
+    write_pattern();
+    while (1) {}
+}
+```
+start.S (Minimal Entry Point):
+```asm
+.section .text.start
+.globl _start
+
+_start:
+    la sp, _stack_top
+    call main
+
+halt:
+    j halt
+```
+Compile with Custom Linker Script
+
+Compile assembly and C code with custom linker script
+```bash
+riscv32-unknown-elf-gcc -c start.S -o start.o
+riscv32-unknown-elf-gcc -c test_link.c -o test_link.o
+```
+Link with custom linker script
+```bash
+riscv32-unknown-elf-ld -T min_link.ld start.o test_link.o -o test_link.elf
+```
+Complete working build script
+```c
+#!/bin/bash
+
+echo "=== Task 11: Linker Script Implementation ==="
+
+# Step 1: Compile all sources
+echo "1. Compiling with custom linker script..."
+riscv32-unknown-elf-gcc -c start.S -o start.o
+riscv32-unknown-elf-gcc -c test_link.c -o test_link.o
+riscv32-unknown-elf-ld -T min_link.ld start.o test_link.o -o test_link.elf
+
+if [ $? -ne 0 ]; then
+    echo "✗ Compilation failed!"
+    exit 1
+else
+    echo "✓ Compilation successful!"
+fi
+
+# Step 2: Verify memory layout
+echo -e "\n2. Verifying memory layout:"
+echo "Text section should be at 0x00000000:"
+riscv32-unknown-elf-objdump -h test_link.elf | grep ".text"
+
+echo "Data section should be at 0x10000000:"
+riscv32-unknown-elf-objdump -h test_link.elf | grep -E "\.data|\.sdata"
+
+# Step 3: Display symbol table (for verification)
+echo -e "\n3. Symbol addresses:"
+riscv32-unknown-elf-nm test_link.elf | head -10
+
+echo -e "\n✓ Linker script test completed successfully!"
+```
+```bash
+chmod +x build_link_test.sh
+./build_link_test.sh
+```
+![Screenshot from 2025-06-08 17-36-27](https://github.com/user-attachments/assets/626150ba-c4c6-4983-aa35-247865937e9d)
+![Screenshot from 2025-06-08 17-39-26](https://github.com/user-attachments/assets/bfa869cc-8648-4d08-a79e-d9f94f6407db)
+![Screenshot from 2025-06-08 18-18-59](https://github.com/user-attachments/assets/e38b17cb-5e31-4f99-a7f4-922b640a2734)
+![Screenshot from 2025-06-08 19-09-12](https://github.com/user-attachments/assets/7497fca6-88ce-4e75-9376-3aa57d50c4f2)
+![Screenshot from 2025-06-08 19-29-39](https://github.com/user-attachments/assets/d36d37c2-572b-43c2-b515-114ad6b32ab9)
 
 
 
