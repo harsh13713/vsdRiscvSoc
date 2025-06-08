@@ -243,7 +243,7 @@ Compile using
 riscv32-unknown-elf-gcc -T linker.ld -nostartfiles -o hello.elf hello.c
 ```
 ![uart hello riscv](https://github.com/user-attachments/assets/91c298b5-c193-46dd-b9d2-d4fb8adfe84e)
-
+</details>
 <details>
 <summary><strong>🚀 Task 8: GCC Optimization (-O0 vs -O2)</strong></summary>
 
